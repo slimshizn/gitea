@@ -36,12 +36,15 @@ var (
 		DisableHTTPGit                          bool
 		AccessControlAllowOrigin                string
 		UseCompatSSHURI                         bool
+		GoGetCloneURLProtocol                   string
 		DefaultCloseIssuesViaCommitsInAnyBranch bool
 		EnablePushCreateUser                    bool
 		EnablePushCreateOrg                     bool
 		DisabledRepoUnits                       []string
 		DefaultRepoUnits                        []string
 		DefaultForkRepoUnits                    []string
+		DefaultMirrorRepoUnits                  []string
+		DefaultTemplateRepoUnits                []string
 		PrefixArchiveFiles                      bool
 		DisableMigrations                       bool
 		DisableStars                            bool `ini:"DISABLE_STARS"`
@@ -50,6 +53,7 @@ var (
 		AllowDeleteOfUnadoptedRepositories      bool
 		DisableDownloadSourceArchives           bool
 		AllowForkWithoutMaximumLimit            bool
+		AllowForkIntoSameOwner                  bool
 
 		// Repository editor settings
 		Editor struct {
@@ -84,11 +88,13 @@ var (
 			PopulateSquashCommentWithCommitMessages  bool
 			AddCoCommitterTrailers                   bool
 			TestConflictingPatchesWithGitApply       bool
+			RetargetChildrenOnMerge                  bool
 		} `ini:"repository.pull-request"`
 
 		// Issue Setting
 		Issue struct {
 			LockReasons []string
+			MaxPinned   int
 		} `ini:"repository.issue"`
 
 		Release struct {
@@ -158,6 +164,8 @@ var (
 		DisabledRepoUnits:                       []string{},
 		DefaultRepoUnits:                        []string{},
 		DefaultForkRepoUnits:                    []string{},
+		DefaultMirrorRepoUnits:                  []string{},
+		DefaultTemplateRepoUnits:                []string{},
 		PrefixArchiveFiles:                      true,
 		DisableMigrations:                       false,
 		DisableStars:                            false,
@@ -168,7 +176,7 @@ var (
 		Editor: struct {
 			LineWrapExtensions []string
 		}{
-			LineWrapExtensions: strings.Split(".txt,.md,.markdown,.mdown,.mkd,", ","),
+			LineWrapExtensions: strings.Split(".txt,.md,.markdown,.mdown,.mkd,.livemd,", ","),
 		},
 
 		// Repository upload settings
@@ -182,7 +190,7 @@ var (
 			Enabled:      true,
 			TempPath:     "data/tmp/uploads",
 			AllowedTypes: "",
-			FileMaxSize:  3,
+			FileMaxSize:  50,
 			MaxFiles:     5,
 		},
 
@@ -207,6 +215,7 @@ var (
 			PopulateSquashCommentWithCommitMessages  bool
 			AddCoCommitterTrailers                   bool
 			TestConflictingPatchesWithGitApply       bool
+			RetargetChildrenOnMerge                  bool
 		}{
 			WorkInProgressPrefixes: []string{"WIP:", "[WIP]"},
 			// Same as GitHub. See
@@ -221,13 +230,16 @@ var (
 			DefaultMergeMessageOfficialApproversOnly: true,
 			PopulateSquashCommentWithCommitMessages:  false,
 			AddCoCommitterTrailers:                   true,
+			RetargetChildrenOnMerge:                  true,
 		},
 
 		// Issue settings
 		Issue: struct {
 			LockReasons []string
+			MaxPinned   int
 		}{
 			LockReasons: strings.Split("Too heated,Off-topic,Spam,Resolved", ","),
+			MaxPinned:   3,
 		},
 
 		Release: struct {
@@ -261,10 +273,6 @@ var (
 	}
 	RepoRootPath string
 	ScriptType   = "bash"
-
-	RepoArchive = struct {
-		Storage
-	}{}
 )
 
 func loadRepositoryFrom(rootCfg ConfigProvider) {
@@ -273,15 +281,18 @@ func loadRepositoryFrom(rootCfg ConfigProvider) {
 	sec := rootCfg.Section("repository")
 	Repository.DisableHTTPGit = sec.Key("DISABLE_HTTP_GIT").MustBool()
 	Repository.UseCompatSSHURI = sec.Key("USE_COMPAT_SSH_URI").MustBool()
+	Repository.GoGetCloneURLProtocol = sec.Key("GO_GET_CLONE_URL_PROTOCOL").MustString("https")
 	Repository.MaxCreationLimit = sec.Key("MAX_CREATION_LIMIT").MustInt(-1)
 	Repository.DefaultBranch = sec.Key("DEFAULT_BRANCH").MustString(Repository.DefaultBranch)
 	RepoRootPath = sec.Key("ROOT").MustString(path.Join(AppDataPath, "gitea-repositories"))
-	forcePathSeparator(RepoRootPath)
 	if !filepath.IsAbs(RepoRootPath) {
 		RepoRootPath = filepath.Join(AppWorkPath, RepoRootPath)
 	} else {
 		RepoRootPath = filepath.Clean(RepoRootPath)
 	}
+
+	checkOverlappedPath("[repository].ROOT", RepoRootPath)
+
 	defaultDetectedCharsetsOrder := make([]string, 0, len(Repository.DetectedCharsetsOrder))
 	for _, charset := range Repository.DetectedCharsetsOrder {
 		defaultDetectedCharsetsOrder = append(defaultDetectedCharsetsOrder, strings.ToLower(strings.TrimSpace(charset)))
@@ -304,8 +315,12 @@ func loadRepositoryFrom(rootCfg ConfigProvider) {
 		log.Fatal("Failed to map Repository.PullRequest settings: %v", err)
 	}
 
-	if !rootCfg.Section("packages").Key("ENABLED").MustBool(true) {
+	if !rootCfg.Section("packages").Key("ENABLED").MustBool(Packages.Enabled) {
 		Repository.DisabledRepoUnits = append(Repository.DisabledRepoUnits, "repo.packages")
+	}
+
+	if !rootCfg.Section("actions").Key("ENABLED").MustBool(Actions.Enabled) {
+		Repository.DisabledRepoUnits = append(Repository.DisabledRepoUnits, "repo.actions")
 	}
 
 	// Handle default trustmodel settings
@@ -351,5 +366,7 @@ func loadRepositoryFrom(rootCfg ConfigProvider) {
 		Repository.Upload.TempPath = path.Join(AppWorkPath, Repository.Upload.TempPath)
 	}
 
-	RepoArchive.Storage = getStorage(rootCfg, "repo-archive", "", nil)
+	if err := loadRepoArchiveFrom(rootCfg); err != nil {
+		log.Fatal("loadRepoArchiveFrom: %v", err)
+	}
 }

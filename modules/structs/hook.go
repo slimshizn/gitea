@@ -19,6 +19,7 @@ var ErrInvalidReceiveHook = errors.New("Invalid JSON payload received over webho
 type Hook struct {
 	ID                  int64             `json:"id"`
 	Type                string            `json:"type"`
+	BranchFilter        string            `json:"branch_filter"`
 	URL                 string            `json:"-"`
 	Config              map[string]string `json:"config"`
 	Events              []string          `json:"events"`
@@ -216,13 +217,14 @@ const (
 
 // IssueCommentPayload represents a payload information of issue comment event.
 type IssueCommentPayload struct {
-	Action     HookIssueCommentAction `json:"action"`
-	Issue      *Issue                 `json:"issue"`
-	Comment    *Comment               `json:"comment"`
-	Changes    *ChangesPayload        `json:"changes,omitempty"`
-	Repository *Repository            `json:"repository"`
-	Sender     *User                  `json:"sender"`
-	IsPull     bool                   `json:"is_pull"`
+	Action      HookIssueCommentAction `json:"action"`
+	Issue       *Issue                 `json:"issue"`
+	PullRequest *PullRequest           `json:"pull_request,omitempty"`
+	Comment     *Comment               `json:"comment"`
+	Changes     *ChangesPayload        `json:"changes,omitempty"`
+	Repository  *Repository            `json:"repository"`
+	Sender      *User                  `json:"sender"`
+	IsPull      bool                   `json:"is_pull"`
 }
 
 // JSONPayload implements Payload
@@ -259,13 +261,6 @@ type ReleasePayload struct {
 func (p *ReleasePayload) JSONPayload() ([]byte, error) {
 	return json.MarshalIndent(p, "", "  ")
 }
-
-// __________             .__
-// \______   \__ __  _____|  |__
-//  |     ___/  |  \/  ___/  |  \
-//  |    |   |  |  /\___ \|   Y  \
-//  |____|   |____//____  >___|  /
-//                      \/     \/
 
 // PushPayload represents a payload information of push event.
 type PushPayload struct {
@@ -342,6 +337,10 @@ const (
 	HookIssueDemilestoned HookIssueAction = "demilestoned"
 	// HookIssueReviewed is an issue action for when a pull request is reviewed
 	HookIssueReviewed HookIssueAction = "reviewed"
+	// HookIssueReviewRequested is an issue action for when a reviewer is requested for a pull request.
+	HookIssueReviewRequested HookIssueAction = "review_requested"
+	// HookIssueReviewRequestRemoved is an issue action for removing a review request to someone on a pull request.
+	HookIssueReviewRequestRemoved HookIssueAction = "review_request_removed"
 )
 
 // IssuePayload represents the payload information that is sent along with an issue event.
@@ -381,14 +380,15 @@ type ChangesPayload struct {
 
 // PullRequestPayload represents a payload information of pull request event.
 type PullRequestPayload struct {
-	Action      HookIssueAction `json:"action"`
-	Index       int64           `json:"number"`
-	Changes     *ChangesPayload `json:"changes,omitempty"`
-	PullRequest *PullRequest    `json:"pull_request"`
-	Repository  *Repository     `json:"repository"`
-	Sender      *User           `json:"sender"`
-	CommitID    string          `json:"commit_id"`
-	Review      *ReviewPayload  `json:"review"`
+	Action            HookIssueAction `json:"action"`
+	Index             int64           `json:"number"`
+	Changes           *ChangesPayload `json:"changes,omitempty"`
+	PullRequest       *PullRequest    `json:"pull_request"`
+	RequestedReviewer *User           `json:"requested_reviewer"`
+	Repository        *Repository     `json:"repository"`
+	Sender            *User           `json:"sender"`
+	CommitID          string          `json:"commit_id"`
+	Review            *ReviewPayload  `json:"review"`
 }
 
 // JSONPayload FIXME
@@ -486,5 +486,42 @@ type PackagePayload struct {
 
 // JSONPayload implements Payload
 func (p *PackagePayload) JSONPayload() ([]byte, error) {
+	return json.MarshalIndent(p, "", "  ")
+}
+
+// WorkflowDispatchPayload represents a workflow dispatch payload
+type WorkflowDispatchPayload struct {
+	Workflow   string         `json:"workflow"`
+	Ref        string         `json:"ref"`
+	Inputs     map[string]any `json:"inputs"`
+	Repository *Repository    `json:"repository"`
+	Sender     *User          `json:"sender"`
+}
+
+// JSONPayload implements Payload
+func (p *WorkflowDispatchPayload) JSONPayload() ([]byte, error) {
+	return json.MarshalIndent(p, "", "  ")
+}
+
+// CommitStatusPayload represents a payload information of commit status event.
+type CommitStatusPayload struct {
+	// TODO: add Branches per https://docs.github.com/en/webhooks/webhook-events-and-payloads#status
+	Commit  *PayloadCommit `json:"commit"`
+	Context string         `json:"context"`
+	// swagger:strfmt date-time
+	CreatedAt   time.Time   `json:"created_at"`
+	Description string      `json:"description"`
+	ID          int64       `json:"id"`
+	Repo        *Repository `json:"repository"`
+	Sender      *User       `json:"sender"`
+	SHA         string      `json:"sha"`
+	State       string      `json:"state"`
+	TargetURL   string      `json:"target_url"`
+	// swagger:strfmt date-time
+	UpdatedAt *time.Time `json:"updated_at"`
+}
+
+// JSONPayload implements Payload
+func (p *CommitStatusPayload) JSONPayload() ([]byte, error) {
 	return json.MarshalIndent(p, "", "  ")
 }

@@ -6,10 +6,8 @@ package repository
 import (
 	"context"
 	"fmt"
-	"image/png"
 	"io"
 	"strconv"
-	"strings"
 
 	"code.gitea.io/gitea/models/db"
 	repo_model "code.gitea.io/gitea/models/repo"
@@ -21,7 +19,7 @@ import (
 // UploadAvatar saves custom avatar for repository.
 // FIXME: split uploads to different subdirs in case we have massive number of repos.
 func UploadAvatar(ctx context.Context, repo *repo_model.Repository, data []byte) error {
-	m, err := avatar.Prepare(data)
+	avatarData, err := avatar.ProcessAvatarImage(data)
 	if err != nil {
 		return err
 	}
@@ -47,9 +45,7 @@ func UploadAvatar(ctx context.Context, repo *repo_model.Repository, data []byte)
 	}
 
 	if err := storage.SaveFrom(storage.RepoAvatars, repo.CustomAvatarRelativePath(), func(w io.Writer) error {
-		if err := png.Encode(w, *m); err != nil {
-			log.Error("Encode: %v", err)
-		}
+		_, err := w.Write(avatarData)
 		return err
 	}); err != nil {
 		return fmt.Errorf("UploadAvatar %s failed: Failed to remove old repo avatar %s: %w", repo.RepoPath(), newAvatar, err)
@@ -110,7 +106,8 @@ func RemoveRandomAvatars(ctx context.Context) error {
 
 // generateAvatar generates the avatar from a template repository
 func generateAvatar(ctx context.Context, templateRepo, generateRepo *repo_model.Repository) error {
-	generateRepo.Avatar = strings.Replace(templateRepo.Avatar, strconv.FormatInt(templateRepo.ID, 10), strconv.FormatInt(generateRepo.ID, 10), 1)
+	// generate a new different hash, whatever the "hash data" is, it doesn't matter
+	generateRepo.Avatar = avatar.HashAvatar(generateRepo.ID, []byte("new-avatar"))
 	if _, err := storage.Copy(storage.RepoAvatars, generateRepo.CustomAvatarRelativePath(), storage.RepoAvatars, templateRepo.CustomAvatarRelativePath()); err != nil {
 		return err
 	}
