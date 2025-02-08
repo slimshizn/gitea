@@ -9,19 +9,17 @@ import (
 	"code.gitea.io/gitea/modules/setting"
 )
 
-// Email structure holds a data for sending general emails
 type GenerateTokenRequest struct {
 	Scope string
 }
 
 // GenerateActionsRunnerToken calls the internal GenerateActionsRunnerToken function
-func GenerateActionsRunnerToken(ctx context.Context, scope string) (string, ResponseExtra) {
+func GenerateActionsRunnerToken(ctx context.Context, scope string) (*ResponseText, ResponseExtra) {
 	reqURL := setting.LocalURL + "api/internal/actions/generate_actions_runner_token"
 
-	req := newInternalRequest(ctx, reqURL, "POST", GenerateTokenRequest{
+	req := newInternalRequestAPI(ctx, reqURL, "POST", GenerateTokenRequest{
 		Scope: scope,
 	})
 
-	resp, extra := requestJSONResp(req, &responseText{})
-	return resp.Text, extra
+	return requestJSONResp(req, &ResponseText{})
 }

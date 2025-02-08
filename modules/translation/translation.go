@@ -5,6 +5,7 @@ package translation
 
 import (
 	"context"
+	"html/template"
 	"sort"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"code.gitea.io/gitea/modules/options"
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/translation/i18n"
+	"code.gitea.io/gitea/modules/util"
 
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -26,8 +28,11 @@ var ContextKey any = &contextKey{}
 // Locale represents an interface to translation
 type Locale interface {
 	Language() string
-	Tr(string, ...any) string
-	TrN(cnt any, key1, keyN string, args ...any) string
+	TrString(string, ...any) string
+
+	Tr(key string, args ...any) template.HTML
+	TrN(cnt any, key1, keyN string, args ...any) template.HTML
+
 	PrettyNumber(v any) string
 }
 
@@ -37,10 +42,12 @@ type LangType struct {
 }
 
 var (
-	lock          *sync.RWMutex
+	lock *sync.RWMutex
+
+	allLangs   []*LangType
+	allLangMap map[string]*LangType
+
 	matcher       language.Matcher
-	allLangs      []*LangType
-	allLangMap    map[string]*LangType
 	supportedTags []language.Tag
 )
 
@@ -137,9 +144,11 @@ func Match(tags ...language.Tag) language.Tag {
 // locale represents the information of localization.
 type locale struct {
 	i18n.Locale
-	Lang, LangName string // these fields are used directly in templates: .i18n.Lang
+	Lang, LangName string // these fields are used directly in templates: ctx.Locale.Lang
 	msgPrinter     *message.Printer
 }
+
+var _ Locale = (*locale)(nil)
 
 // NewLocale return a locale
 func NewLocale(lang string) Locale {
@@ -213,8 +222,12 @@ var trNLangRules = map[string]func(int64) int{
 	},
 }
 
+func (l *locale) Tr(s string, args ...any) template.HTML {
+	return l.TrHTML(s, args...)
+}
+
 // TrN returns translated message for plural text translation
-func (l *locale) TrN(cnt any, key1, keyN string, args ...any) string {
+func (l *locale) TrN(cnt any, key1, keyN string, args ...any) template.HTML {
 	var c int64
 	if t, ok := cnt.(int); ok {
 		c = int64(t)
@@ -241,5 +254,18 @@ func (l *locale) TrN(cnt any, key1, keyN string, args ...any) string {
 
 func (l *locale) PrettyNumber(v any) string {
 	// TODO: this mechanism is not good enough, the complete solution is to switch the translation system to ICU message format
+	if s, ok := v.(string); ok {
+		if num, err := util.ToInt64(s); err == nil {
+			v = num
+		} else if num, err := util.ToFloat64(s); err == nil {
+			v = num
+		}
+	}
 	return l.msgPrinter.Sprintf("%v", number.Decimal(v))
+}
+
+func init() {
+	// prepare a default matcher, especially for tests
+	supportedTags = []language.Tag{language.English}
+	matcher = language.NewMatcher(supportedTags)
 }
